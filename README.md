@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ⚔️ PHALANX | Technical Manual
 
-## Getting Started
+This repository contains the documentation and technical manual for **Phalanx**, a high-performance, globally distributed consensus engine built in Go.
 
-First, run the development server:
+The manual is built with **Next.js 15**, **Tailwind CSS**, and **Turbopack**, designed for extreme readability and sub-millisecond navigation.
+
+**Main Engine Repository:** [github.com/tijani-web/phalanx](https://github.com/tijani-web/phalanx)
+
+## 🚀 Deployment
+
+The documentation is automatically deployed to **Vercel** on every push to the `main` branch.
+
+- **Production URL:** [phalanx-docs.vercel.app](https://phalanx-docs.vercel.app)
+- **Root Directory:** `./`
+- **Framework Preset:** Next.js
+
+## 🛠️ Local Development
+
+To run the documentation locally:
 
 ```bash
+# Install dependencies
+npm install
+
+# Start the development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📖 Architecture Overview
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Phalanx leverages:
+- **Custom Raft Implementation**: Strong consistency over global WAN.
+- **SWIM Gossip**: Dynamic peer discovery via `memberlist`.
+- **BadgerDB**: SSD-optimized LSM-tree storage.
+- **gRPC Transport**: High-throughput, low-latency communication.
 
-## Learn More
+For full technical specifications, please refer to the [Internal Architecture](https://phalanx-docs.vercel.app/architecture) section.
 
-To learn more about Next.js, take a look at the following resources:
+## 📄 License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This documentation and the Phalanx engine are licensed under the **MIT License**.
