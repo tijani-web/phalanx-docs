@@ -8,91 +8,72 @@ export default function ArchitecturePage() {
         how phalanx moves data from a client request to a committed, replicated state change.
       </p>
 
-      <h2>the single-threaded event loop</h2>
+      <h2>multi-threaded concurrency</h2>
+ 
+       <p>
+         Phalanx operates on a <strong>concurrent handler model</strong>. While the core consensus
+         logic remains sequential and deterministic, the <em>access</em> to the state machine is
+         multi-threaded. By decoupling gRPC network handling from background tasks, we enable
+         vertical scaling and parallel processing of client requests.
+       </p>
 
       <p>
-        Phalanx operates on the principle of <strong>single-threaded control</strong>. While modern
-        hardware is multi-core, consensus is inherently sequential — a state machine that processes
-        one input at a time. By channeling all state mutations through a single <code>select</code> loop,
-        we eliminate the complexity of distributed locking within the process.
-      </p>
+         Concurrency is managed via a <code>sync.RWMutex</code>. Incoming gRPC handlers execute in
+         their own goroutines, locking the mutex only while interacting with the Raft core.
+       </p>
+ 
+       <table>
+         <thead>
+           <tr>
+             <th>component</th>
+             <th>concurrency</th>
+             <th>action</th>
+           </tr>
+         </thead>
+         <tbody>
+           <tr>
+             <td><code>HandleAppendEntries</code></td>
+             <td>gRPC goroutine</td>
+             <td>acquires <code>Lock()</code> to step the state machine</td>
+           </tr>
+           <tr>
+             <td><code>HandlePropose</code></td>
+             <td>gRPC goroutine</td>
+             <td>acquires <code>Lock()</code> to append to log</td>
+           </tr>
+           <tr>
+             <td><code>HandleRead</code></td>
+             <td>gRPC goroutine</td>
+             <td>acquires <code>RLock()</code> for parallel quorum checks</td>
+           </tr>
+           <tr>
+             <td><code>Background Run</code></td>
+             <td>dedicated thread</td>
+             <td>acquires <code>Lock()</code> for ticks and discovery</td>
+           </tr>
+         </tbody>
+       </table>
 
-      <p>
-        The event loop in <code>node.go</code> multiplexes six distinct signal channels:
-      </p>
-
-      <table>
-        <thead>
-          <tr>
-            <th>signal</th>
-            <th>source</th>
-            <th>action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>ticker.C</code></td>
-            <td>internal ticker</td>
-            <td>triggers election timeouts or leader heartbeats</td>
-          </tr>
-          <tr>
-            <td><code>grpc.RPCs()</code></td>
-            <td>gRPC server</td>
-            <td>ingests AppendEntries or RequestVote messages</td>
-          </tr>
-          <tr>
-            <td><code>grpc.Proposes()</code></td>
-            <td>client API</td>
-            <td>ingests new commands into the Raft log</td>
-          </tr>
-          <tr>
-            <td><code>grpc.Reads()</code></td>
-            <td>client API</td>
-            <td>triggers quorum check for linearizable reads</td>
-          </tr>
-          <tr>
-            <td><code>responseCh</code></td>
-            <td>async gRPC clients</td>
-            <td>handles callbacks from peer RPC responses</td>
-          </tr>
-          <tr>
-            <td><code>discovery.Events()</code></td>
-            <td>gossip mesh</td>
-            <td>ingests NodeJoin events to trigger config changes</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <pre><code>{`// node.go — the complete event loop
-for {
-    select {
-    case <-ctx.Done():
-        return n.shutdown()
-
-    case <-ticker.C:
-        n.raft.Tick()
-        n.applyCommitted()
-        n.persistState()
-        n.dispatchMessages()
-
-    case rpc := <-n.grpc.RPCs():
-        n.handleRPC(rpc)
-
-    case op := <-n.grpc.Proposes():
-        n.handlePropose(op)
-
-    case op := <-n.grpc.Reads():
-        n.handleRead(op)
-
-    case resp := <-n.responseCh:
-        n.raft.Step(resp)
-        n.applyCommitted()
-        n.dispatchMessages()
-
-    case event := <-n.discoveryEvents():
-        n.handleDiscoveryEvent(event)
-    }
-}`}</code></pre>
+      <pre><code>{`// node.go — the simplified background loop
+ for {
+     select {
+     case <-ctx.Done():
+         return n.shutdown()
+ 
+     case <-ticker.C:
+         n.mu.Lock()
+         n.raft.Tick()
+         n.applyCommitted()
+         n.persistState()
+         n.dispatchMessages()
+         n.mu.Unlock()
+ 
+     case event := <-n.discoveryEvents():
+         n.mu.Lock()
+         n.handleDiscoveryEvent(event)
+         n.mu.Unlock()
+     }
+ }`}</code></pre>
 
       <h2>the pure state machine pattern</h2>
 
@@ -124,27 +105,29 @@ for _, m := range msgs {
       <h2>data flow</h2>
 
       <h3>write path (propose)</h3>
-
-      <pre><code>{`Client
-  → gRPC Propose(data)
-  → Node event loop
-  → raft.Propose(data)
-  → append to leader log (index N)
-  → broadcastHeartbeat → AppendEntries to all followers
-  → majority ack → commitIndex advances to N
-  → applyCommitted() → fsm.Apply(SET key=value)
-  → signal pending proposal channel
-  → respond to client: success`}</code></pre>
-
-      <h3>read path (linearizable)</h3>
-
-      <pre><code>{`Client
-  → gRPC Read(key)
-  → Node event loop
-  → check: am I leader? (if not → return leader_addr for redirect)
-  → HasLeaderQuorum() → verify majority acked this heartbeat round
-  → fsm.Get(key)
-  → respond to client: value`}</code></pre>
+ 
+       <pre><code>{`Client
+   → gRPC Propose(data)
+   → HandlePropose() goroutine
+   → n.mu.Lock()
+   → raft.Propose(data)
+   → n.mu.Unlock()
+   → broadcastHeartbeat → AppendEntries
+   → majority ack → commitIndex advances
+   → applyCommitted() → fsm.Apply(SET key=value)
+   → signal doneCh
+   → respond to client: success`}</code></pre>
+ 
+       <h3>read path (linearizable)</h3>
+ 
+       <pre><code>{`Client
+   → gRPC Read(key)
+   → HandleRead() goroutine
+   → n.mu.RLock()
+   → HasLeaderQuorum() → verify majority lease
+   → n.mu.RUnlock()
+   → fsm.Get(key)
+   → respond to client: value`}</code></pre>
 
       <h2>component boundaries</h2>
 
@@ -182,11 +165,11 @@ for _, m := range msgs {
             <td>SWIM gossip</td>
             <td>nothing</td>
           </tr>
-          <tr>
-            <td><code>node.go</code></td>
-            <td>event loop glue</td>
-            <td>everything</td>
-          </tr>
+           <tr>
+             <td><code>node.go</code></td>
+             <td>concurrency orchestrator</td>
+             <td>everything</td>
+           </tr>
         </tbody>
       </table>
 

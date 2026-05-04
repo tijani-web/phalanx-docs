@@ -14,11 +14,9 @@ export default function IntroductionPage() {
         replicated key-value store backed by BadgerDB with automatic peer discovery via SWIM gossip.
       </p>
 
-      <p>
-        Unlike black-box coordination services, Phalanx exposes a <strong>transparent, deterministic
-          state machine</strong> that decouples consensus logic from I/O. The entire Raft core runs
-        inside a single-threaded event loop with zero mutex contention on the hot path.
-      </p>
+        Inside the Raft core, Phalanx uses a <strong>high-concurrency architecture</strong> that
+        decouples network handling from state logic, using a <code>sync.RWMutex</code> to
+        provide safe, parallel access to the state machine.
 
       <h2>at a glance</h2>
 
@@ -28,8 +26,8 @@ export default function IntroductionPage() {
           <p>Pure state machine. No time.Now(), no rand in consensus logic. Fully reproducible execution.</p>
         </div>
         <div className="feature-cell">
-          <h4>zero-lock hot path</h4>
-          <p>Single-threaded event loop eliminates mutex contention. Predictable sub-millisecond latency.</p>
+          <h4>high-concurrency core</h4>
+          <p>Multi-threaded architecture enables vertical scaling. Concurrent handlers utilize all CPU cores for network and I/O.</p>
         </div>
         <div className="feature-cell">
           <h4>edge-native</h4>
